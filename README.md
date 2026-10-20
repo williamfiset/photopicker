@@ -19,7 +19,16 @@ pip install -r requirements.txt
 ```
 
 This installs PySide6 (Qt), Pillow, pillow-heif and rawpy, and adds a
-`photopick` command to the venv.
+`photopick` command to the venv. To use `photopick` from any terminal without
+activating the venv, link it into a folder on your PATH (on macOS with
+Homebrew):
+
+```sh
+ln -s ~/.venvs/photopick/bin/photopick /opt/homebrew/bin/photopick
+```
+
+The package is installed in editable mode, so edits to the code here take
+effect without reinstalling.
 
 ## Run
 
