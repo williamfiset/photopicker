@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "photopick"
+version = "1.0.0"
+description = "Cull photos from an SD card and export a plain list of the keepers."
+requires-python = ">=3.10"
+
+[project.scripts]
+photopick = "photopick.app:main"
+
+[tool.setuptools]
+packages = ["photopick"]

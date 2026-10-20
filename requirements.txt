@@ -1,0 +1,6 @@
+PySide6-Essentials>=6.6
+Pillow>=10.0
+pillow-heif>=0.16
+rawpy>=0.19
+# installs this folder too, which adds the `photopick` command
+-e .
