@@ -1,9 +1,8 @@
-"""The set of photos being culled, the saved pick state, and export.
+"""The set of photos being culled, the pick state, and the picks file.
 
 No Qt in here, so it is easy to reason about and test on its own.
 """
 
-import json
 import os
 from dataclasses import dataclass
 from datetime import datetime
@@ -15,12 +14,11 @@ from .images import is_supported
 class Photo:
     path: str  # absolute path
     name: str  # file name only
-    size: int  # bytes, used to tell a re-used SD card path from the original photo
 
 
 def _make_photo(path):
     path = os.path.abspath(path)
-    return Photo(path=path, name=os.path.basename(path), size=os.path.getsize(path))
+    return Photo(path=path, name=os.path.basename(path))
 
 
 def _sort_key(path):
@@ -71,10 +69,7 @@ class PhotoSet:
         for path in paths:
             if path in self._known_paths:
                 continue
-            try:
-                photo = _make_photo(path)
-            except OSError:
-                continue  # vanished or unreadable; nothing useful to show
+            photo = _make_photo(path)
             self.photos.append(photo)
             self._known_paths.add(photo.path)
             added += 1
@@ -94,50 +89,50 @@ class PhotoSet:
 
 
 class PickStore:
-    """Pick state saved as JSON, keyed by full file path.
+    """Which photos are picked, by full path.
 
-    Each entry also remembers the file size, so if a formatted SD card later
-    holds a different photo at the same path, it does not show up as picked.
+    If a picks file is given (an album's picks.txt), it is read at startup and
+    rewritten after every change, so quitting never loses anything and the next
+    session picks up where this one stopped. Without one, picks only live in
+    memory until exported.
     """
 
-    def __init__(self, json_path):
-        self.json_path = json_path
-        self.picks = {}  # path -> size in bytes
-        self._load()
-
-    def _load(self):
-        try:
-            with open(self.json_path, encoding="utf-8") as f:
-                self.picks = json.load(f).get("picks", {})
-        except FileNotFoundError:
-            pass
-        except (OSError, ValueError) as e:
-            print(f"photopick: could not read {self.json_path}: {e}")
-
-    def save(self):
-        try:
-            os.makedirs(os.path.dirname(self.json_path), exist_ok=True)
-            tmp_path = self.json_path + ".tmp"
-            with open(tmp_path, "w", encoding="utf-8") as f:
-                json.dump({"version": 1, "picks": self.picks}, f, indent=1, sort_keys=True)
-            os.replace(tmp_path, self.json_path)  # atomic: never a half-written file
-        except OSError as e:
-            print(f"photopick: could not save picks to {self.json_path}: {e}")
+    def __init__(self, picks_file=None):
+        self.picks_file = picks_file
+        self.picked = set()
+        if picks_file and os.path.exists(picks_file):
+            self.picked = set(read_picks(picks_file))
 
     def is_picked(self, photo):
-        return self.picks.get(photo.path) == photo.size
+        return photo.path in self.picked
 
-    def set_picked(self, photo, picked):
+    def set_picked(self, photo, picked, photos):
         if picked:
-            self.picks[photo.path] = photo.size
+            self.picked.add(photo.path)
         else:
-            self.picks.pop(photo.path, None)
-        self.save()
+            self.picked.discard(photo.path)
+        self.save(photos)
 
     def clear(self, photos):
-        for photo in photos:
-            self.picks.pop(photo.path, None)
-        self.save()
+        self.picked -= {p.path for p in photos}
+        self.save(photos)
+
+    def ordered_paths(self, photos):
+        """Picked paths in set order, then any picks not in the current set
+        (e.g. from a card that isn't mounted right now), so none are dropped."""
+        in_set = [p.path for p in photos if p.path in self.picked]
+        others = sorted(self.picked - set(in_set))
+        return in_set + others
+
+    def save(self, photos):
+        if not self.picks_file:
+            return
+        try:
+            tmp_path = self.picks_file + ".tmp"
+            write_picks(tmp_path, self.ordered_paths(photos))
+            os.replace(tmp_path, self.picks_file)  # atomic: never a half-written file
+        except OSError as e:
+            print(f"photopick: could not save picks to {self.picks_file}: {e}")
 
 
 # --- export -----------------------------------------------------------------
@@ -150,8 +145,13 @@ def default_export_name(photo_set, now=None):
     return f"picks-{label or 'files'}-{now:%Y%m%d-%H%M}.txt"
 
 
-def write_picks(out_path, picked_photos, full_paths):
-    """Write one file name (or full path) per line, in set order."""
+def write_picks(out_path, paths):
+    """Write one full path per line."""
     with open(out_path, "w", encoding="utf-8") as f:
-        for photo in picked_photos:
-            f.write((photo.path if full_paths else photo.name) + "\n")
+        for path in paths:
+            f.write(path + "\n")
+
+
+def read_picks(picks_file):
+    with open(picks_file, encoding="utf-8") as f:
+        return [line.strip() for line in f if line.strip()]

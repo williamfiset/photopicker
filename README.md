@@ -28,8 +28,18 @@ photopick                                   # start empty, then press ⌘O / Ctr
 photopick /Volumes/SDCARD/DCIM              # a folder, scanned recursively
 photopick a.jpg b.ARW ~/Desktop/c.jpg       # only these files
 photopick ~/shoot1 ~/shoot2/DSC0001.ARW     # mix folders and files
+photopick /Volumes/SDCARD/DCIM --picks ~/album/picks.txt   # save picks as you go
 python -m photopick /path/to/folder         # same thing without the command
 ```
+
+### Picks files (`--picks`)
+
+With `--picks FILE`, PhotoPick reads the picks already in `FILE` (if it exists)
+and rewrites it after every P, X or Space. You can quit at any point and run the
+same command later to carry on where you stopped. Picks that aren't in the
+loaded set, for example from a card that isn't inserted, are kept in the file.
+
+Without `--picks`, picks only live in memory until you export them (⌘E).
 
 Inside the app you can also:
 
@@ -85,10 +95,10 @@ On Windows and Linux, ⌘ is Ctrl, ⌥ is Alt and ⇧ is Shift.
 
 ## Export
 
-⌘E (File > Export Picks…) asks whether to write **full paths** (the default)
-or **file names only**, then opens a save dialog. The default name is
+⌘E (File > Export Picks…) opens a save dialog and writes the picks as full
+paths, one per line, in the same order as the set. The default name is
 `picks-<folder-name>-YYYYMMDD-HHMM.txt`, or `picks-files-…` when the set came
-from a file list. The file has one entry per line, in the same order as the set.
+from a file list. This is the same format as a `--picks` file.
 
 ## Supported formats
 
@@ -100,13 +110,9 @@ decoded show a placeholder with their name.
 
 ## Where things are stored
 
-- **Picks**: `picks.json` in the app data folder (macOS:
-  `~/Library/Application Support/PhotoPick/`; Linux: `~/.local/share/PhotoPick/`;
-  Windows: `%APPDATA%\PhotoPick\`). Picks are keyed by each photo's full path,
-  so they come back whether you open the folder or a file list. Each entry also
-  records the file size, so if a re-formatted card later holds a different photo
-  at the same path, it doesn't show up as picked. **File > Clear All Picks…**
-  clears the picks for the photos currently loaded.
+- **Picks**: only in the `--picks` file you pass (or the file you export to).
+  There is no global pick history, so each album starts clean.
+  **File > Clear All Picks…** clears the picks for the photos currently loaded.
 - **Thumbnail cache**: the user cache folder (macOS:
   `~/Library/Caches/PhotoPick/thumbnails`), never on the SD card. Entries are
   keyed by path + size + modification time. You can delete the folder at any time.
@@ -119,4 +125,4 @@ No network access, accounts or telemetry.
 - `photopick/widgets.py`: list model, background loader, grid, filmstrip,
   single view, shortcuts overlay
 - `photopick/images.py`: decoding, RAW previews, orientation, thumbnail cache
-- `photopick/photoset.py`: the photo set, saved picks, export file writing
+- `photopick/photoset.py`: the photo set, pick state and picks file

@@ -1,14 +1,14 @@
 """PhotoPick main window: loading photos, keyboard culling, and export."""
 
+import argparse
 import os
 import sys
 
 from PySide6.QtCore import QSettings, QStandardPaths, Qt
 from PySide6.QtGui import QAction, QColor, QKeySequence, QPalette
 from PySide6.QtWidgets import (
-    QApplication, QCheckBox, QDialog, QDialogButtonBox, QFileDialog, QLabel,
-    QMainWindow, QMessageBox, QRadioButton, QSplitter, QStackedWidget,
-    QVBoxLayout, QWidget,
+    QApplication, QCheckBox, QFileDialog, QLabel, QMainWindow, QMessageBox,
+    QSplitter, QStackedWidget, QVBoxLayout, QWidget,
 )
 
 from . import images
@@ -58,30 +58,6 @@ def shortcut_text(keys):
     """Keys as shown to the user, e.g. "⌘O" on macOS or "Ctrl+O" elsewhere."""
     return " / ".join(KEY_NAMES.get(k) or QKeySequence(k).toString(QKeySequence.SequenceFormat.NativeText)
                       for k in keys)
-
-
-class ExportDialog(QDialog):
-    """Ask whether to write bare file names or full paths."""
-
-    def __init__(self, parent, pick_count):
-        super().__init__(parent)
-        self.setWindowTitle("Export picks")
-        layout = QVBoxLayout(self)
-        layout.addWidget(QLabel(f"Export {pick_count} picked photo(s) as a text file, one per line:"))
-        self.paths_button = QRadioButton("Full paths  (/Volumes/…/DSC01234.ARW)")
-        self.names_button = QRadioButton("File names only  (DSC01234.ARW)")
-        layout.addWidget(self.paths_button)
-        layout.addWidget(self.names_button)
-        self.paths_button.setChecked(True)
-        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok
-                                   | QDialogButtonBox.StandardButton.Cancel)
-        buttons.button(QDialogButtonBox.StandardButton.Ok).setText("Choose file…")
-        buttons.accepted.connect(self.accept)
-        buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
-
-    def full_paths(self):
-        return self.paths_button.isChecked()
 
 
 class MainWindow(QMainWindow):
@@ -413,7 +389,7 @@ class MainWindow(QMainWindow):
         photo = self.current_photo()
         if photo is None:
             return
-        self.pick_store.set_picked(photo, picked)
+        self.pick_store.set_picked(photo, picked, self.photo_set.photos)
         self.model.row_changed(self.current_row())
         self._update_status()
         if self.in_single_view():
@@ -451,13 +427,10 @@ class MainWindow(QMainWindow):
     # --- export -------------------------------------------------------------
 
     def export_picks(self):
-        picked = self.picked_photos()
-        if not picked:
+        """Save the picks list (full paths, one per line) to a file of your choice."""
+        paths = self.pick_store.ordered_paths(self.photo_set.photos)
+        if not paths:
             QMessageBox.information(self, "Export picks", "No photos are picked yet.")
-            return
-
-        dialog = ExportDialog(self, len(picked))
-        if dialog.exec() != QDialog.DialogCode.Accepted:
             return
 
         start_dir = self.settings.value("export_dir", os.path.expanduser("~"))
@@ -467,12 +440,12 @@ class MainWindow(QMainWindow):
         if not out_path:
             return
         try:
-            write_picks(out_path, picked, dialog.full_paths())
+            write_picks(out_path, paths)
         except OSError as e:
             QMessageBox.warning(self, "Export picks", f"Could not write the file:\n{e}")
             return
         self.settings.setValue("export_dir", os.path.dirname(out_path))
-        self.statusBar().showMessage(f"Exported {len(picked)} pick(s) to {out_path}", 15000)
+        self.statusBar().showMessage(f"Exported {len(paths)} pick(s) to {out_path}", 15000)
 
     # --- status bar ---------------------------------------------------------
 
@@ -484,7 +457,10 @@ class MainWindow(QMainWindow):
             return
         picked = len(self.picked_photos())
         self.position_label.setText(f"photo {self.current_row() + 1} of {total} - {picked} picked")
-        self.source_label.setText(self.photo_set.source_label())
+        source = self.photo_set.source_label()
+        if self.pick_store.picks_file:
+            source += f"   ->   saving picks to {self.pick_store.picks_file}"
+        self.source_label.setText(source)
 
 
 def dark_palette():
@@ -501,19 +477,28 @@ def dark_palette():
     return palette
 
 
+def parse_args(argv):
+    parser = argparse.ArgumentParser(prog="photopick",
+                                     description="Cull photos and export a list of the keepers.")
+    parser.add_argument("paths", nargs="*", help="folders and/or image files to load")
+    parser.add_argument("--picks", metavar="FILE",
+                        help="picks file (one full path per line): read at startup if it "
+                             "exists, rewritten after every pick")
+    return parser.parse_args(argv)
+
+
 def main():
-    app = QApplication(sys.argv)
+    args = parse_args(sys.argv[1:])
+    app = QApplication(sys.argv[:1])
     app.setApplicationName("PhotoPick")
     app.setStyle("Fusion")
     app.setPalette(dark_palette())
 
-    data_dir = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.AppDataLocation)
+    picks_file = os.path.abspath(args.picks) if args.picks else None
     cache_dir = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.CacheLocation)
-    window = MainWindow(PickStore(os.path.join(data_dir, "picks.json")),
-                        os.path.join(cache_dir, "thumbnails"))
+    window = MainWindow(PickStore(picks_file), os.path.join(cache_dir, "thumbnails"))
     window.show()
 
-    paths = app.arguments()[1:]
-    if paths:
-        window.load(paths, replace=True)
+    if args.paths:
+        window.load(args.paths, replace=True)
     return app.exec()
